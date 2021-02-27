@@ -1,0 +1,463 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>Color Gamut Calculator</title>
+<script type="text/javascript">
+function xyY(x, y, Y)
+{
+	this.x = x;
+	this.y = y;
+	this.Y = Y;
+	return this;
+}
+
+function XYZ(X, Y, Z)
+{
+	this.X = X;
+	this.Y = Y;
+	this.Z = Z;
+	return this;
+}
+
+function RGB(R, G, B)
+{
+	this.R = R;
+	this.G = G;
+	this.B = B;
+	return this;
+}
+
+function RGBA(r, g, b, a)
+{
+	this.r = r;
+	this.g = g;
+	this.b = b;
+	this.a = a;
+	return this;
+}
+
+function xyYToXYZ(c)
+{
+	return new XYZ(c.Y * c.x / c.y, c.Y, c.Y * (1.0 - c.x - c.y) / c.y);
+}
+
+function sRGBToXYZ(c)
+{
+	return new XYZ(0.4124 * c.R + 0.3576 * c.G + 0.1805 * c.B, 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B, 0.0193 * c.R + 0.1192 * c.G + 0.9502 * c.B);
+}
+
+function XYZToxyY(c)
+{
+	return new xyY(c.X / (c.X + c.Y + c.Z), c.Y / (c.X + c.Y + c.Z), c.Y);
+}
+
+function XYZTosRGB(c)
+{
+	return new RGB(3.2406 * c.X - 1.5372 * c.Y - 0.4986 * c.Z, -0.9689 * c.X + 1.8758 * c.Y + 0.0415 * c.Z, 0.0557 * c.X - 0.2040 * c.Y + 1.0570 * c.Z);
+}
+
+function DevicesRGBTosRGB(c)
+{
+	return new RGB(c.R <= 0.04045 ? c.R / 12.92 : Math.pow((c.R + 0.055) / 1.055, 2.4), c.G <= 0.04045 ? c.G / 12.92 : Math.pow((c.G + 0.055) / 1.055, 2.4), c.B <= 0.04045 ? c.B / 12.92 : Math.pow((c.B + 0.055) / 1.055, 2.4));
+}
+
+function sRGBToDevicesRGB(c)
+{
+	return new RGB(c.R <= 0.0031308 ? 12.92 * c.R : 1.055 * Math.pow(c.R, 1.0 / 2.4) - 0.055, c.G <= 0.0031308 ? 12.92 * c.G : 1.055 * Math.pow(c.G, 1.0 / 2.4) - 0.055, c.B <= 0.0031308 ? 12.92 * c.B : 1.055 * Math.pow(c.B, 1.0 / 2.4) - 0.055);
+}
+
+function Device8bitsRGBToDevicesRGB(c)
+{
+	return new RGB(c.R / 255, c.G / 255, c.B / 255);
+}
+
+function DevicesRGBToDevice8bitsRGB(c)
+{
+	return new RGB(Math.round(255 * c.R), Math.round(255 * c.G), Math.round(255 * c.B));
+}
+
+function GetPointIntersected(c11, c12, c21, c22)
+{
+	var d;
+	var d1;
+	var d2;
+	d = (c12.x - c11.x) * (c22.y - c21.y) - (c12.y - c11.y) * (c22.x - c21.x);
+	if(d != 0)
+	{
+		d1 = ((c22.y - c21.y) * (c21.x - c11.x) - (c22.x - c21.x) * (c21.y - c11.y)) / d;
+		d2 = ((c12.y - c11.y) * (c21.x - c11.x) - (c12.x - c11.x) * (c21.y - c11.y)) / d;
+		if(d1 >= 0.0 && d1 <= 1.0 && d2 >= 0.0 && d2 <= 1.0)
+		{
+			return new xyY(d1 * c12.x + (1.0 - d1) * c11.x, d1 * c12.y + (1.0 - d1) * c11.y, 0.0);
+		}
+	}
+	return null;
+}
+
+function GetPointInsideTriangle(c, c1, c2, c3)
+{
+	var v1;
+	var v2;
+	var v3;
+	v1 = new xyY(c1.x - c.x, c1.y - c.y, 0.0);
+	v2 = new xyY(c2.x - c.x, c2.y - c.y, 0.0);
+	v3 = new xyY(c3.x - c.x, c3.y - c.y, 0.0);
+	if(v1.x * v2.y - v1.y * v2.x > 0.0)
+	{
+		if(v2.x * v3.y - v2.y * v3.x > 0.0)
+		{
+			if(v3.x * v1.y - v3.y * v1.x > 0.0)
+			{
+				return c;
+			}
+		}
+	}
+	return null;
+}
+
+function GetPixelRGB(image, x, y)
+{
+	var i;
+	i = (y * image.width + x) * 4;
+	return new RGB(image.data[i], image.data[i + 1], image.data[i + 2]);
+}
+
+function SetPixelRGB(image, x, y, c)
+{
+	var i;
+	i = (y * image.width + x) * 4;
+	image.data[i] = c.R;
+	image.data[i + 1] = c.G;
+	image.data[i + 2] = c.B;
+	image.data[i + 3] = 255;
+}
+
+function UpdateDiagram()
+{
+	var Diagram;
+	var context;
+	var image;
+	var y;
+	var x;
+	var s;
+	var c;
+	var l;
+	var Observer = [[
+		0.0013680, 0.0022360, 0.0042430, 0.0076500, 0.014310, 0.023190, 0.043510, 0.077630, 0.13438, 0.21477,
+		0.28390, 0.32850, 0.34828, 0.34806, 0.33620, 0.31870, 0.29080, 0.25110, 0.19536, 0.14210,
+		0.095640, 0.057950, 0.032010, 0.014700, 0.0049000, 0.0024000, 0.0093000, 0.029100, 0.063270, 0.10960,
+		0.16550, 0.22575, 0.29040, 0.35970, 0.43345, 0.51205, 0.59450, 0.67840, 0.76210, 0.84250,
+		0.91630, 0.97860, 1.0263, 1.0567, 1.0622, 1.0456, 1.0026, 0.93840, 0.85445, 0.75140,
+		0.64240, 0.54190, 0.44790, 0.36080, 0.28350, 0.21870, 0.16490, 0.12120, 0.087400, 0.063600,
+		0.046770, 0.032900, 0.022700, 0.015840, 0.011359, 0.0081109, 0.0057903, 0.0041095, 0.0028993, 0.0020492,
+		0.0014400, 0.00099995, 0.00069008, 0.00047602, 0.00033230, 0.00023483, 0.00016615, 0.00011741, 0.000083075, 0.000058707,
+		0.000041510
+	],[
+		0.000039000, 0.000064000, 0.00012000, 0.00021700, 0.00039600, 0.00064000, 0.0012100, 0.0021800, 0.0040000, 0.007300,
+		0.011600, 0.016840, 0.023000, 0.029800, 0.038000, 0.048000, 0.060000, 0.073900, 0.090980, 0.11260,
+		0.13902, 0.16930, 0.20802, 0.25860, 0.32300, 0.40730, 0.50300, 0.60820, 0.71000, 0.79320,
+		0.86200, 0.91485, 0.95400, 0.98030, 0.99495, 1.00000, 0.99500, 0.97860, 0.95200, 0.91540,
+		0.87000, 0.81630, 0.75700, 0.69490, 0.63100, 0.56680, 0.50300, 0.44120, 0.38100, 0.32100,
+		0.26500, 0.21700, 0.17500, 0.13820, 0.10700, 0.081600, 0.061000, 0.044580, 0.032000, 0.023200,
+		0.017000, 0.011920, 0.0082100, 0.0057230, 0.0041020, 0.0029290, 0.0020910, 0.0014840, 0.0010470, 0.00074000,
+		0.00052000, 0.00036110, 0.00024920, 0.00017190, 0.00012000, 0.000084800, 0.000060000, 0.000042400, 0.000030000, 0.000021200,
+		0.000014990
+	],[
+		0.00645, 0.01055, 0.02005, 0.03621, 0.06785, 0.11020, 0.20740, 0.37130, 0.64560, 1.03905,
+		1.38560, 1.62296, 1.74706, 1.78260, 1.77211, 1.74410, 1.66920, 1.52810, 1.28764, 1.04190,
+		0.81295, 0.61620, 0.46518, 0.35330, 0.27200, 0.21230, 0.15820, 0.11170, 0.07825, 0.05725,
+		0.04216, 0.02984, 0.02030, 0.01340, 0.00875, 0.00575, 0.00390, 0.00275, 0.00210, 0.00180,
+		0.00165, 0.00140, 0.00110, 0.00100, 0.00080, 0.00060, 0.00034, 0.00024, 0.00019, 0.00010,
+		0.00005, 0.00003, 0.00002, 0.00001, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000,
+		0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000,
+		0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000,
+		0.00000
+	]];
+	var ViewX = 0.75;
+	var ViewY = 0.85;
+	Diagram = document.getElementById("Diagram");
+	Diagram.width = 500;
+	Diagram.height = 500;
+	context = Diagram.getContext("2d");
+	context.fillStyle = "rgb(0,0,0)";
+	context.fillRect(0, 0, Diagram.width, Diagram.height);
+	context.fillStyle = "rgb(255,255,255)";
+	context.beginPath();
+	s = XYZToxyY(new XYZ(Observer[0][0], Observer[1][0], Observer[2][0]));
+	context.moveTo(s.x * Diagram.width / ViewX, (ViewY - s.y) * Diagram.height / ViewY);
+	for(y = 1; y < Observer[0].length; y++)
+	{
+		s = XYZToxyY(new XYZ(Observer[0][y], Observer[1][y], Observer[2][y]));
+		context.lineTo(s.x * Diagram.width / ViewX, (ViewY - s.y) * Diagram.height / ViewY);
+	}
+	context.closePath();
+	context.fill();
+	image = context.getImageData(0, 0, Diagram.width, Diagram.height);
+	for(y = 0; y < image.height; y++)
+	{
+		for(x = 0; x < image.width; x++)
+		{
+			s = GetPixelRGB(image, x, y);
+			if(s.R != 0)
+			{
+				s = xyYToXYZ(new xyY(ViewX * x / image.width, ViewY - ViewY * y / image.height, 1.0));
+				if(s.X >= 0.0 && s.Y >= 0.0 && s.Z >= 0.0)
+				{
+					c = XYZTosRGB(s);
+					l = Math.max(c.R, Math.max(c.G, c.B)) / 0.5;
+					c.R = Math.max(0.0, c.R / l);
+					c.G = Math.max(0.0, c.G / l);
+					c.B = Math.max(0.0, c.B / l);
+					c = DevicesRGBToDevice8bitsRGB(sRGBToDevicesRGB(c));
+					SetPixelRGB(image, x, y, c);
+				}
+			}
+		}
+	}
+	context.putImageData(image, 0, 0);
+	context.lineCap = "round";
+	context.lineJoin = "round"
+	context.lineWidth = 1.5;
+	context.strokeStyle = "rgb(0,0,0)";
+	for(x = 0; x <= 8; x++)
+	{
+		context.beginPath();
+		context.moveTo(x * 0.1 * Diagram.width / ViewX, 0);
+		context.lineTo(x * 0.1 * Diagram.width / ViewX, Diagram.height);
+		context.closePath();
+		context.stroke();
+	}
+	for(y = 0; y <= 9; y++)
+	{
+		context.beginPath();
+		context.moveTo(0, (ViewY - y * 0.1) * Diagram.height / ViewY);
+		context.lineTo(Diagram.width, (ViewY - y * 0.1) * Diagram.height / ViewY);
+		context.closePath();
+		context.stroke();
+	}
+	context.lineWidth = 2.0;
+	context.strokeStyle = "rgb(255,0,0)";
+	context.beginPath();
+	context.moveTo(document.getElementById("RefRx").value * Diagram.width / ViewX, (ViewY - document.getElementById("RefRy").value) * Diagram.height / ViewY);
+	context.lineTo(document.getElementById("RefGx").value * Diagram.width / ViewX, (ViewY - document.getElementById("RefGy").value) * Diagram.height / ViewY);
+	context.lineTo(document.getElementById("RefBx").value * Diagram.width / ViewX, (ViewY - document.getElementById("RefBy").value) * Diagram.height / ViewY);
+	context.lineTo(document.getElementById("RefRx").value * Diagram.width / ViewX, (ViewY - document.getElementById("RefRy").value) * Diagram.height / ViewY);
+	context.closePath();
+	context.stroke();
+	context.lineWidth = 6.0;
+	context.beginPath();
+	context.moveTo(document.getElementById("RefWx").value * Diagram.width / ViewX, (ViewY - document.getElementById("RefWy").value) * Diagram.height / ViewY);
+	context.lineTo(document.getElementById("RefWx").value * Diagram.width / ViewX, (ViewY - document.getElementById("RefWy").value) * Diagram.height / ViewY);
+	context.closePath();
+	context.stroke();
+	context.lineWidth = 2.0;
+	context.strokeStyle = "rgb(0,255,0)";
+	context.beginPath();
+	context.moveTo(document.getElementById("DevRx").value * Diagram.width / ViewX, (ViewY - document.getElementById("DevRy").value) * Diagram.height / ViewY);
+	context.lineTo(document.getElementById("DevGx").value * Diagram.width / ViewX, (ViewY - document.getElementById("DevGy").value) * Diagram.height / ViewY);
+	context.lineTo(document.getElementById("DevBx").value * Diagram.width / ViewX, (ViewY - document.getElementById("DevBy").value) * Diagram.height / ViewY);
+	context.lineTo(document.getElementById("DevRx").value * Diagram.width / ViewX, (ViewY - document.getElementById("DevRy").value) * Diagram.height / ViewY);
+	context.closePath();
+	context.stroke();
+	context.lineWidth = 6.0;
+	context.beginPath();
+	context.moveTo(document.getElementById("DevWx").value * Diagram.width / ViewX, (ViewY - document.getElementById("DevWy").value) * Diagram.height / ViewY);
+	context.lineTo(document.getElementById("DevWx").value * Diagram.width / ViewX, (ViewY - document.getElementById("DevWy").value) * Diagram.height / ViewY);
+	context.closePath();
+	context.stroke();
+}
+
+function SetsRGB()
+{
+	document.getElementById("RefRx").value = (0.6400).toFixed(4);
+	document.getElementById("RefRy").value = (0.3300).toFixed(4);
+	document.getElementById("RefGx").value = (0.3000).toFixed(4);
+	document.getElementById("RefGy").value = (0.6000).toFixed(4);
+	document.getElementById("RefBx").value = (0.1500).toFixed(4);
+	document.getElementById("RefBy").value = (0.0600).toFixed(4);
+	document.getElementById("RefWx").value = (0.3127).toFixed(4);
+	document.getElementById("RefWy").value = (0.3290).toFixed(4);
+}
+
+function SetNTSC()
+{
+	document.getElementById("RefRx").value = (0.6700).toFixed(4);
+	document.getElementById("RefRy").value = (0.3300).toFixed(4);
+	document.getElementById("RefGx").value = (0.2100).toFixed(4);
+	document.getElementById("RefGy").value = (0.7100).toFixed(4);
+	document.getElementById("RefBx").value = (0.1400).toFixed(4);
+	document.getElementById("RefBy").value = (0.0800).toFixed(4);
+	document.getElementById("RefWx").value = (0.3100).toFixed(4);
+	document.getElementById("RefWy").value = (0.3160).toFixed(4);
+}
+
+function SetAdobeRGB()
+{
+	document.getElementById("RefRx").value = (0.6400).toFixed(4);
+	document.getElementById("RefRy").value = (0.3300).toFixed(4);
+	document.getElementById("RefGx").value = (0.2100).toFixed(4);
+	document.getElementById("RefGy").value = (0.7100).toFixed(4);
+	document.getElementById("RefBx").value = (0.1500).toFixed(4);
+	document.getElementById("RefBy").value = (0.0600).toFixed(4);
+	document.getElementById("RefWx").value = (0.3127).toFixed(4);
+	document.getElementById("RefWy").value = (0.3290).toFixed(4);
+}
+
+function SetDCIP3()
+{
+	document.getElementById("RefRx").value = (0.6800).toFixed(4);
+	document.getElementById("RefRy").value = (0.3200).toFixed(4);
+	document.getElementById("RefGx").value = (0.2650).toFixed(4);
+	document.getElementById("RefGy").value = (0.6900).toFixed(4);
+	document.getElementById("RefBx").value = (0.1500).toFixed(4);
+	document.getElementById("RefBy").value = (0.0600).toFixed(4);
+	document.getElementById("RefWx").value = (0.3140).toFixed(4);
+	document.getElementById("RefWy").value = (0.3510).toFixed(4);
+}
+
+function SetBT2020()
+{
+	document.getElementById("RefRx").value = (0.7080).toFixed(4);
+	document.getElementById("RefRy").value = (0.2920).toFixed(4);
+	document.getElementById("RefGx").value = (0.1700).toFixed(4);
+	document.getElementById("RefGy").value = (0.7970).toFixed(4);
+	document.getElementById("RefBx").value = (0.1310).toFixed(4);
+	document.getElementById("RefBy").value = (0.0460).toFixed(4);
+	document.getElementById("RefWx").value = (0.3127).toFixed(4);
+	document.getElementById("RefWy").value = (0.3290).toFixed(4);
+}
+
+function CopyFromReference()
+{
+	document.getElementById("DevRx").value = document.getElementById("RefRx").value;
+	document.getElementById("DevRy").value = document.getElementById("RefRy").value;
+	document.getElementById("DevGx").value = document.getElementById("RefGx").value;
+	document.getElementById("DevGy").value = document.getElementById("RefGy").value;
+	document.getElementById("DevBx").value = document.getElementById("RefBx").value;
+	document.getElementById("DevBy").value = document.getElementById("RefBy").value;
+	document.getElementById("DevWx").value = document.getElementById("RefWx").value;
+	document.getElementById("DevWy").value = document.getElementById("RefWy").value;
+}
+
+function Calculate()
+{
+	var Ref;
+	var Dev;
+	var p;
+	var i;
+	var j;
+	var c;
+	var n;
+	var Ratio;
+	var Coverage;
+	var Temperature;
+	Ref = new Array(0);
+	Ref.push(new xyY(parseFloat(document.getElementById("RefRx").value), parseFloat(document.getElementById("RefRy").value), 0.0));
+	Ref.push(new xyY(parseFloat(document.getElementById("RefGx").value), parseFloat(document.getElementById("RefGy").value), 0.0));
+	Ref.push(new xyY(parseFloat(document.getElementById("RefBx").value), parseFloat(document.getElementById("RefBy").value), 0.0));
+	Ref.push(new xyY(parseFloat(document.getElementById("RefWx").value), parseFloat(document.getElementById("RefWy").value), 0.0));
+	Dev = new Array(0);
+	Dev.push(new xyY(parseFloat(document.getElementById("DevRx").value), parseFloat(document.getElementById("DevRy").value), 0.0));
+	Dev.push(new xyY(parseFloat(document.getElementById("DevGx").value), parseFloat(document.getElementById("DevGy").value), 0.0));
+	Dev.push(new xyY(parseFloat(document.getElementById("DevBx").value), parseFloat(document.getElementById("DevBy").value), 0.0));
+	Dev.push(new xyY(parseFloat(document.getElementById("DevWx").value), parseFloat(document.getElementById("DevWy").value), 0.0));
+	p = new Array(0);
+	for(i = 0; i < 3; i++)
+	{
+		for(j = 0; j < 3; j++)
+		{
+			if(c = GetPointIntersected(Ref[i], Ref[(i + 1) % 3], Dev[j], Dev[(j + 1) % 3]))
+			{
+				p.push(c);
+			}
+		}
+	}
+	for(i = 0; i < 3; i++)
+	{
+		if(c = GetPointInsideTriangle(Ref[i], Dev[0], Dev[1], Dev[2]))
+		{
+			p.push(c);
+		}
+	}
+	for(i = 0; i < 3; i++)
+	{
+		if(c = GetPointInsideTriangle(Dev[i], Ref[0], Ref[1], Ref[2]))
+		{
+			p.push(c);
+		}
+	}
+	p.sort(function(a, b)
+	{
+		return (Math.atan2(a.y - Ref[3].y, a.x - Ref[3].x) >= Math.atan2(b.y - Ref[3].y, b.x - Ref[3].x) ? 1 : -1);
+	});
+	n = 0.0;
+	for(i = 0; i < 3; i++)
+	{
+		n += Ref[i].x * Ref[(i + 1) % 3].y - Ref[i].y * Ref[(i + 1) % 3].x;
+	}
+	Ratio = 0.0;
+	for(i = 0; i < 3; i++)
+	{
+		Ratio += Dev[i].x * Dev[(i + 1) % 3].y - Dev[i].y * Dev[(i + 1) % 3].x;
+	}
+	Ratio /= n;
+	Coverage = 0.0;
+	for(i = 0; i < p.length; i++)
+	{
+		Coverage += p[i].x * p[(i + 1) % p.length].y - p[i].y * p[(i + 1) % p.length].x;
+	}
+	Coverage /= n;
+	n = (Dev[3].x - 0.3366) / (Dev[3].y - 0.1735);
+	Temperature = -949.86315 + 6253.80338 * Math.exp(n / -0.92159) + 28.70599 * Math.exp(n / -0.20039) + 0.00004 * Math.exp(n / -0.07125);
+	document.getElementById("Ratio").value = (100 * Ratio).toFixed(2);
+	document.getElementById("Coverage").value = (100 * Coverage).toFixed(2);
+	document.getElementById("Temperature").value = Temperature.toFixed(0);
+	UpdateDiagram();
+}
+
+</script>
+<style type="text/css">
+.number { width : 4em; text-align : right; }
+table { border : 1px solid; }
+tr { border : 0px; }
+td { border : 0px; }
+</style>
+</head>
+<body onload="UpdateDiagram();">
+<table>
+<tr><td>
+<form>
+Reference CIE xyY colors<br>
+<table>
+<tr><td colspan="3">Well-known color spaces</td></tr>
+<tr><td colspan="3"><input type="button" value="sRGB" onclick="SetsRGB();"><input type="button" value="NTSC" onclick="SetNTSC();"><input type="button" value="Adobe RGB" onclick="SetAdobeRGB();"><br><input type="button" value="DCI-P3" onclick="SetDCIP3();"><input type="button" value="BT.2020" onclick="SetBT2020();"></td></tr>
+<tr><td></td><td>x</td><td>y</td></td>
+<tr><td>Red</td><td><input id="RefRx" class="number" type="text"></td><td><input id="RefRy" class="number" type="text"></td></td>
+<tr><td>Green</td><td><input id="RefGx" class="number" type="text"></td><td><input id="RefGy" class="number" type="text"></td></td>
+<tr><td>Blue</td><td><input id="RefBx" class="number" type="text"></td><td><input id="RefBy" class="number" type="text"></td></td>
+<tr><td>White point</td><td><input id="RefWx" class="number" type="text"></td><td><input id="RefWy" class="number" type="text"></td></td>
+</table>
+Device CIE xyY colors<br>
+<table>
+<tr><td colspan="3"><input type="button" value="Copy from reference" onclick="CopyFromReference();"></td></tr>
+<tr><td></td><td>x</td><td>y</td></td>
+<tr><td>Red</td><td><input id="DevRx" class="number" type="text"></td><td><input id="DevRy" class="number" type="text"></td></td>
+<tr><td>Green</td><td><input id="DevGx" class="number" type="text"></td><td><input id="DevGy" class="number" type="text"></td></td>
+<tr><td>Blue</td><td><input id="DevBx" class="number" type="text"></td><td><input id="DevBy" class="number" type="text"></td></td>
+<tr><td>White point</td><td><input id="DevWx" class="number" type="text"></td><td><input id="DevWy" class="number" type="text"></td></td>
+</table>
+<input type="button" value="Calculate" onclick="Calculate();"><br>
+Results<br>
+<table>
+<tr><td>Gamut ratio [%]</td><td><input id="Ratio" class="number" type="text"></td></td>
+<tr><td>Gamut coverage [%]</td><td><input id="Coverage" class="number" type="text"></td></td>
+<tr><td>Color temperature [K]</td><td><input id="Temperature" class="number" type="text"></td></td>
+</table>
+</form>
+</td><td>
+<canvas id="Diagram"></canvas>
+</td></tr>
+</table>
+</body>
+</html>
